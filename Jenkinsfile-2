@@ -1,25 +1,38 @@
 pipeline {
+  //agent any // Run directly on the host agent
   agent {
-    docker { image 'liquibase/liquibase:4.4.2' }
-  }
-  environment {
-    MARIADB_CREDS=credentials('mariadb-credentials')
+    docker { image 'liquibase/liquibase:4.20.0' 
+    // CRUCIAL: Links the container network directly to your laptop host
+    args '--network=host -e INSTALL_MYSQL=true --entrypoint=""'
+    }
   }
   stages {
-    stage('Status') {
+    stage('Liquibase Operations') {
       steps {
-        sh 'liquibase status --url="jdbc:mysql://192.168.32.11:3306/my_app" --changeLogFile=my_app-wrapper.xml --username=$MARIADB_CREDS_USR --password=$MARIADB_CREDS_PSW'
-      }
-    }
-    stage('Update') {
-      steps {
-        sh 'liquibase update --url="jdbc:mysql://192.168.32.11:3306/my_app" --changeLogFile=my_app-wrapper.xml --username=$MARIADB_CREDS_USR --password=$MARIADB_CREDS_PSW'
+        // Run a fast connection diagnostic test
+        //echo "Testing network connectivity to 192.168.1.174 on port 3306..."
+        //sh 'nc -zv -w3 192.168.32.11 3306 || echo "CRITICAL: Cannot reach the database server!"'  
+        // Dynamically binds your username and password variables securely
+        withCredentials([usernamePassword(credentialsId: 'mariadb-credentials', 
+                                          usernameVariable: 'MARIADB_CREDS_USR', 
+                                          passwordVariable: 'MARIADB_CREDS_PSW')]) {
+          
+          echo 'Checking Liquibase Status...'
+          //sh 'liquibase status --url="jdbc:mysql://127.0.0.1:3306/liquibase_db" --changeLogFile=my_app-wrapper.xml --username=$MARIADB_CREDS_USR --password=$MARIADB_CREDS_PSW'
+          sh 'liquibase status --driver=org.mariadb.jdbc.Driver --url="jdbc:mariadb://127.0.0.1:3306/liquibase_db" --changeLogFile=my_app-wrapper.xml --username=$MARIADB_CREDS_USR --password=$MARIADB_CREDS_PSW'
+          echo 'Running Liquibase Update...'
+          //sh 'liquibase update --url="jdbc:mysql://127.0.0.1:3306/liquibase_db" --changeLogFile=my_app-wrapper.xml --username=$MARIADB_CREDS_USR --password=$MARIADB_CREDS_PSW'
+          sh 'liquibase update --driver=org.mariadb.jdbc.Driver --url="jdbc:mariadb://127.0.0.1:3306/liquibase_db" --changeLogFile=my_app-wrapper.xml --username=$MARIADB_CREDS_USR --password=$MARIADB_CREDS_PSW'
+        }
       }
     }
   }
   post {
     always {
-      cleanWs()
+      // Fixes the hudson.FilePath context issue
+      node('') {
+        cleanWs()
+      }
     }
   }
 }
